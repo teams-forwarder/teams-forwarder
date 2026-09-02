@@ -1,0 +1,10 @@
+{
+  "name": "md2png",
+  "version": "1.0.0",
+  "type": "commonjs",
+  "dependencies": {
+    "express": "^5.0.0",
+    "marked": "^18.0.0",
+    "puppeteer-core": "^25.0.0"
+  }
+}

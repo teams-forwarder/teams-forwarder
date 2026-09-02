@@ -1,0 +1,509 @@
+{
+  "name": "Mattermost-2-Teams",
+  "nodes": [
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={\n\"attachments\": [\n    {\n      \"color\": \"#4052ab\",\n      \"title\": \"MS-Teams Responder\",\n      \"text\": \"Your message will be forwarded to: {{ $json.msteamsmessageid }}\"\n    }\n  ]\n}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.5,
+      "position": [
+        32,
+        -128
+      ],
+      "id": "e9fbc130-afa0-42e5-b539-64e67968f6d3",
+      "name": "Quick Response"
+    },
+    {
+      "parameters": {
+        "jsCode": "const message = $input.first().json.props.attachments[0].footer\n\nconst match = message.match(/Ref:(\\S+)/);\nconst msteamsrefid = match ? match[1] : null;\n\nconst msteamschatsid = (msteamsrefid != null && msteamsrefid.match(/chats\\('([^']+)'\\)/)) ? msteamsrefid.match(/chats\\('([^']+)'\\)/)[1] : null;\nconst msteamsteamid = (msteamsrefid != null && msteamsrefid.match(/teams\\('([^']+)'\\)/)) ? msteamsrefid.match(/teams\\('([^']+)'\\)/)[1] : null;\nconst msteamschannelid = (msteamsrefid != null && msteamsrefid.match(/channels\\('([^']+)'\\)/)) ? msteamsrefid.match(/channels\\('([^']+)'\\)/)[1] : null;\nconst msteamsmessageid = (msteamsrefid != null && msteamsrefid.match(/messages\\('([^']+)'\\)/)) ? msteamsrefid.match(/messages\\('([^']+)'\\)/)[1] : null;\n\nreturn [{ \n  json: { ...$input.first().json, msteamschannelid, msteamsmessageid, msteamschatsid, msteamsteamid } }];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -192,
+        -128
+      ],
+      "id": "10484c98-b044-4abf-9f65-be92be24194d",
+      "name": "Extract MS-Teams Ref ID"
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={\n\"attachments\": [\n    {\n      \"color\": \"#4052ab\",\n      \"title\": \"MS-Teams Responder\",\n      \"text\": \"The message cannot be forwarded to MS-Teams, since it is no reply to an MS-Teams message\"\n    }\n  ]\n}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.5,
+      "position": [
+        32,
+        160
+      ],
+      "id": "7907059e-57c2-4fb1-adf8-04a5caf218eb",
+      "name": "No Teams Ref Response"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "=https://graph.microsoft.com/v1.0/chats/{{ $('Extract MS-Teams Ref ID').item.json.msteamschatsid }}/messages",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "microsoftTeamsOAuth2Api",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify($('Prepare Message Body').first().json.message) }}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        1376,
+        -64
+      ],
+      "id": "24859c37-e937-405f-a84b-284421f21d84",
+      "name": "Post DM | Group Response",
+      "credentials": {
+        "microsoftTeamsOAuth2Api": {
+          "id": "zRL9ShF85bcTxkH3",
+          "name": "MS-Teams User OAuth2"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 3
+          },
+          "conditions": [
+            {
+              "id": "02de197d-ba50-40ea-bda1-1daa1ab0b629",
+              "leftValue": "={{ $('Extract MS-Teams Ref ID').item.json.msteamschannelid }}",
+              "rightValue": "",
+              "operator": {
+                "type": "string",
+                "operation": "exists",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [
+        1152,
+        -128
+      ],
+      "id": "652e16ac-4fd7-4b5c-b960-f3a729dcc9b5",
+      "name": "Is It A Channel Message"
+    },
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "a509d0d0-7389-4080-8323-79cd8c7201d0",
+        "authentication": "headerAuth",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2.1,
+      "position": [
+        -1120,
+        -112
+      ],
+      "id": "3246e120-1f14-440e-acda-6e19ea42251f",
+      "name": "Incoming Message",
+      "webhookId": "a509d0d0-7389-4080-8323-79cd8c7201d0",
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "8OEkBnNxVJBHWD7S",
+          "name": "n8n Workflow Authorization via Header"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "url": "={{ $json.Mattermost_URL }}/v4/posts/{{ $('Incoming Message').item.json.body.root_id }}",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "httpBearerAuth",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        -640,
+        -112
+      ],
+      "id": "153f0903-ee7d-4923-9f36-e6ff05341429",
+      "name": "Get The MS-Teams Root Post",
+      "credentials": {
+        "httpBearerAuth": {
+          "id": "BQzXUxKuHF0pxnRa",
+          "name": "Mattermost n8n Personal Access Token Secret"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 3
+          },
+          "conditions": [
+            {
+              "id": "a7e384e4-0fdb-48fa-a3c8-d56dbfebd5a9",
+              "leftValue": "={{ $json.props.attachments[0].footer }}",
+              "rightValue": "",
+              "operator": {
+                "type": "string",
+                "operation": "exists",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [
+        -416,
+        -112
+      ],
+      "id": "965cd94b-987c-4ad4-83c8-5e2f16e65eaa",
+      "name": "Has MS-Teams Message Origin?"
+    },
+    {
+      "parameters": {
+        "channelId": "={{ $('Incoming Message').item.json.body.channel_id }}",
+        "message": "=",
+        "attachments": [
+          {
+            "color": "#4052ab",
+            "title": "[n8n powered] MS-Teams Response",
+            "text": "=**Your Response:** \n{{ $('Incoming Message').item.json.body.text }}"
+          }
+        ],
+        "otherOptions": {
+          "root_id": "={{ $('Incoming Message').item.json.body.root_id }}"
+        }
+      },
+      "type": "n8n-nodes-base.mattermost",
+      "typeVersion": 1,
+      "position": [
+        336,
+        -128
+      ],
+      "id": "b74e318f-2412-4926-a5ff-67308c72c445",
+      "name": "Response Preview (optional)",
+      "credentials": {
+        "mattermostApi": {
+          "id": "LP3nYcY4vaxiyBnn",
+          "name": "Mattermost n8n"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "http://localhost:3000/render",
+        "sendBody": true,
+        "contentType": "raw",
+        "rawContentType": "text/markdown",
+        "body": "={{ $('Incoming Message').item.json.body.text }}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        704,
+        -128
+      ],
+      "id": "acc25768-5338-4f3b-9dc8-25406e55bea0",
+      "name": "Render Response Message to PNG"
+    },
+    {
+      "parameters": {
+        "jsCode": "const buf = await this.helpers.getBinaryDataBuffer(0, 'data');\n\nreturn [{ json: \n{ message: {\n  \"body\": {\n    \"contentType\": \"html\",\n    \"content\": \"<attachment id=\\\"\"+ $('Extract MS-Teams Ref ID').first().json.msteamsmessageid +\"\\\"></attachment><p><img src=\\\"../hostedContents/1/$value\\\" /></p>\"\n  },\n  \"attachments\": [\n    {\n      \"id\": $('Extract MS-Teams Ref ID').first().json.msteamsmessageid,\n      \"contentType\": \"messageReference\",\n      \"contentUrl\": null,\n      \"content\": \"{\\\"messageId\\\":\\\"\" + $('Extract MS-Teams Ref ID').first().json.msteamsmessageid + \"\\\"}\",\n      \"name\": null,\n      \"thumbnailUrl\": null\n    }\n  ],\n  \"hostedContents\": [\n    {\n      \"@microsoft.graph.temporaryId\": \"1\",\n      \"contentType\": \"image/png\",\n      \"contentBytes\": buf.toString('base64')\n    }\n  ]\n}\n}\n}];\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        928,
+        -128
+      ],
+      "id": "58b16f74-4f7d-4126-8913-7246c2b2f296",
+      "name": "Prepare Message Body"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "=https://graph.microsoft.com/v1.0/teams/{{ $('Extract MS-Teams Ref ID').item.json.msteamsteamid }}/channels/{{ $('Extract MS-Teams Ref ID').item.json.msteamschannelid }}/messages/{{ $('Extract MS-Teams Ref ID').item.json.msteamsmessageid }}/replies",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "microsoftTeamsOAuth2Api",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify($('Prepare Message Body').first().json.message) }}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        1376,
+        -224
+      ],
+      "id": "5b5bc7bc-5175-4460-a0b8-aea551d967ac",
+      "name": "Post Channel Response",
+      "credentials": {
+        "microsoftTeamsOAuth2Api": {
+          "id": "zRL9ShF85bcTxkH3",
+          "name": "MS-Teams User OAuth2"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "671def64-91ee-47c1-9633-7de3406907f0",
+              "name": "Mattermost_URL",
+              "value": "=https://MISSING_MATTERMOST_DOMAIN/api",
+              "type": "string"
+            }
+          ]
+        },
+        "includeOtherFields": true,
+        "options": {}
+      },
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.5,
+      "position": [
+        -880,
+        -112
+      ],
+      "id": "8f119188-967a-4c15-9575-5fd21cdb3e22",
+      "name": "Set Workflow Constants"
+    },
+    {
+      "parameters": {
+        "content": "# TODO: Constants\n\nUpdate the `Set Workflow Constants` node's values according to your environment.",
+        "height": 448,
+        "width": 224,
+        "color": "#5C0700"
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        -944,
+        -352
+      ],
+      "id": "060e4801-5da6-4b40-8cd5-978e9c30503b",
+      "name": "Sticky Note"
+    },
+    {
+      "parameters": {
+        "content": "# Get MS-Teams Reference Message",
+        "height": 448,
+        "width": 656,
+        "color": "#B18CFE"
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        -688,
+        -352
+      ],
+      "id": "c1f4b86d-8166-48b4-bc7d-c15390b9a823",
+      "name": "Sticky Note1"
+    },
+    {
+      "parameters": {
+        "content": "# Response Preview\n\nSince Mattermost's slash commands won't be storing the entered command in the conversation history, this node sends the message back to Mattermost. If you don't need a conversation log, feel free to remove this optional node.",
+        "height": 448,
+        "width": 416,
+        "color": "#0A58CC"
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        192,
+        -352
+      ],
+      "id": "dd299e0a-ff84-4348-b7ce-30c83bdecd2f",
+      "name": "Sticky Note2"
+    },
+    {
+      "parameters": {
+        "content": "# Send Message To MS-Teams",
+        "height": 448,
+        "width": 960,
+        "color": "#B18CFE"
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        640,
+        -352
+      ],
+      "id": "f89984c2-0c23-4bdc-a018-5fce196efc51",
+      "name": "Sticky Note3"
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "Quick Response": {
+      "main": [
+        [
+          {
+            "node": "Response Preview (optional)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Extract MS-Teams Ref ID": {
+      "main": [
+        [
+          {
+            "node": "Quick Response",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "No Teams Ref Response": {
+      "main": [
+        []
+      ]
+    },
+    "Is It A Channel Message": {
+      "main": [
+        [
+          {
+            "node": "Post Channel Response",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Post DM | Group Response",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Incoming Message": {
+      "main": [
+        [
+          {
+            "node": "Set Workflow Constants",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get The MS-Teams Root Post": {
+      "main": [
+        [
+          {
+            "node": "Has MS-Teams Message Origin?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Has MS-Teams Message Origin?": {
+      "main": [
+        [
+          {
+            "node": "Extract MS-Teams Ref ID",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "No Teams Ref Response",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Response Preview (optional)": {
+      "main": [
+        [
+          {
+            "node": "Render Response Message to PNG",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Render Response Message to PNG": {
+      "main": [
+        [
+          {
+            "node": "Prepare Message Body",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Prepare Message Body": {
+      "main": [
+        [
+          {
+            "node": "Is It A Channel Message",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Set Workflow Constants": {
+      "main": [
+        [
+          {
+            "node": "Get The MS-Teams Root Post",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": true,
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate"
+  },
+  "versionId": "53cba67d-b38a-44f5-ad53-43e7dfa94a20",
+  "meta": {
+    "templateCredsSetupCompleted": true,
+    "instanceId": "0ebdc5fe79854fd41ec7ec7da916ac4790f90f076450db5ae26c00c89c7c7610"
+  },
+  "nodeGroups": [],
+  "id": "aIfubQma3znhOhyX",
+  "tags": []
+}

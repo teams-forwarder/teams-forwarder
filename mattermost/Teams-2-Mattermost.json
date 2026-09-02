@@ -1,0 +1,692 @@
+{
+  "name": "Teams-2-Mattermost",
+  "nodes": [
+    {
+      "parameters": {
+        "jsCode": "const messageBody = $json.body.content;\nconst imgRegex = /<img[^>]+src=\"(https:\\/\\/[^\"]*graph\\.microsoft\\.com[^\"]*)\"/gi;\n\nconst imageUrls = [];\nlet match;\n\nwhile ((match = imgRegex.exec(messageBody)) !== null) {\n  imageUrls.push(match[1]);\n}\n\nif (imageUrls.length === 0) {\n  return [{ json: { hasImage: false, imageUrl: null } }];\n}\n\n// Return one item per image — so the next nodes process each one individually\nreturn imageUrls.map(url => ({ json: { hasImage: true, imageUrl: url } }));"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -96,
+        -160
+      ],
+      "id": "35acfb9d-e978-4f91-95cf-c7564c95da04",
+      "name": "Extract Image URLs",
+      "notesInFlow": false
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForEachItem",
+        "jsCode": "const html = $json.body.content;\n\nconst plain_message = html\n  .replace(/<br\\s*\\/?>/gi, '\\n')\n  .replace(/<\\/p>/gi, '\\n')\n  .replace(/<p[^>]*>/gi, '')\n  .replace(/<strong[^>]*>(.*?)<\\/strong>/gi, '**$1**')\n  .replace(/<b[^>]*>(.*?)<\\/b>/gi, '**$1**')\n  .replace(/<em[^>]*>(.*?)<\\/em>/gi, '*$1*')\n  .replace(/<i[^>]*>(.*?)<\\/i>/gi, '*$1*')\n  .replace(/<a[^>]*href=\"([^\"]*)\"[^>]*>(.*?)<\\/a>/gi, '[$2]($1)')\n  .replace(/<[^>]+>/g, '')\n  .replace(/&amp;/g, '&')\n  .replace(/&lt;/g, '<')\n  .replace(/&gt;/g, '>')\n  .replace(/&nbsp;/g, ' ')\n  .trim();\n\nreturn { json: { plain_message } };\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        96,
+        -336
+      ],
+      "id": "5f5831c9-b12e-4f87-bc34-2b43c3c6ce79",
+      "name": "Strip HTML"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $('Set Workflow Constants').item.json.Mattermost_URL }}/v4/files",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "httpBearerAuth",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Content-Type",
+              "value": "multipart/form-data"
+            }
+          ]
+        },
+        "sendBody": true,
+        "contentType": "multipart-form-data",
+        "bodyParameters": {
+          "parameters": [
+            {
+              "parameterType": "formBinaryData",
+              "name": "files",
+              "inputDataFieldName": "data"
+            },
+            {
+              "name": "channel_id",
+              "value": "={{ $('Set Workflow Constants').item.json.Mattermost_ChannelID }}"
+            },
+            {
+              "name": "filename",
+              "value": "={{ $binary.data.fileName ?? 'img.png' }}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        672,
+        -32
+      ],
+      "id": "b28ec109-40d4-4662-bdb7-6f2a2460d36e",
+      "name": "Upload Images to Mattermost",
+      "alwaysOutputData": true,
+      "executeOnce": false,
+      "credentials": {
+        "httpBearerAuth": {
+          "id": "BQzXUxKuHF0pxnRa",
+          "name": "Mattermost n8n Personal Access Token Secret"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 3
+          },
+          "conditions": [
+            {
+              "id": "b57713cf-a0f2-44f4-b652-699e3cfbfef2",
+              "leftValue": "={{ $json.from }}",
+              "rightValue": "",
+              "operator": {
+                "type": "object",
+                "operation": "exists",
+                "singleValue": true
+              }
+            },
+            {
+              "id": "c3e94085-61d3-4659-8055-9cf50919f874",
+              "leftValue": "={{ $json.from.user.displayName }}",
+              "rightValue": "={{ $('Set Workflow Constants').item.json.My_MsTeams_Name }}",
+              "operator": {
+                "type": "string",
+                "operation": "notEquals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [
+        -368,
+        -144
+      ],
+      "id": "d1094033-1dba-4621-9e8e-462a6a347b53",
+      "name": "Only Messages From Others"
+    },
+    {
+      "parameters": {
+        "jsCode": "const results = [];\nconst items = $input.all();\n\nfor (let index = 0; index < items.length; index++) {\n  const item = items[index];\n  \n  results.push({\n    json: {},\n    binary: {\n      data: {\n        ...item.binary.data,\n        fileName: `img${index}.png`,\n        mimeType: item.binary.data.mimeType,\n      }\n    }\n  });\n}\n\nreturn results;"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        496,
+        -32
+      ],
+      "id": "8fd9ac1c-f4cc-46f7-99c0-c064a71b7677",
+      "name": "Strip Binary Files"
+    },
+    {
+      "parameters": {
+        "jsCode": "const items = $input.all();\n\nlet messageText = '';\nconst fileIds = [];\nconst imageUrls = [];\n\nfor (const item of items) {\n  // Pick up message text if present\n  if (item.json.plain_message) {\n    messageText = item.json.plain_message;\n  }\n\n  // Pick up file IDs from file_infos array if present\n  if (item.json.file_infos && Array.isArray(item.json.file_infos)) {\n    for (const fileInfo of item.json.file_infos) {\n      if (fileInfo.id) {\n        fileIds.push(fileInfo.id);\n        imageUrls.push(`${$('Set Workflow Constants').first().json.Mattermost_URL}/v4/files/${fileInfo.id}`);\n      }\n    }\n  }\n}\n\nconst chatTriggered  = $('Incoming Message (Chat)').isExecuted;\nconst channelTriggered = $('Incoming Message (Channel)').isExecuted;\nlet footerRef;\nif (chatTriggered) {\n  footerRef = \"Ref:\" + $('Incoming Message (Chat)').first().json['@odata.id'];\n} else if (channelTriggered) {\n  footerRef = \"Ref:\" + $('Incoming Message (Channel)').first().json['@odata.id'];\n}\n\nconst firstAttachment = {\n  color: \"#4542F8\",\n  author_name: \"MS-Teams Message\",\n  title: $('Set Workflow Constants').first().json.from.user.displayName,\n  text: messageText,\n  footer: footerRef,\n  ...(imageUrls && imageUrls.length > 0 ? { image_url: imageUrls[0] } : {})\n};\n\nconst additionalAttachments = (imageUrls && imageUrls.length > 1)\n  ? imageUrls.slice(1).map(url => ({ image_url: url })) : [];\n\nconst body = {\n  channel_id: $('Set Workflow Constants').first().json.Mattermost_ChannelID,\n  message: \"\",\n  props: {\n    attachments: [firstAttachment, ...additionalAttachments]\n  }\n};\n\nreturn [{\n  json: {\n    messageText: messageText,\n    fileIds: fileIds.length > 0 ? fileIds : [],\n    imageUrls: imageUrls.length > 0 ? imageUrls : [],\n    hasMessage: messageText.length > 0,\n    hasFiles: fileIds.length > 0,\n    postbody: body\n  }\n}];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1040,
+        -240
+      ],
+      "id": "60b7e38b-b9f0-41e7-a376-83e2c1fe7943",
+      "name": "Aggregate Into One Post"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $('Set Workflow Constants').item.json.Mattermost_URL }}/v4/posts",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "httpBearerAuth",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Accept",
+              "value": "application/json"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify($json.postbody) }}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        1248,
+        -240
+      ],
+      "id": "27104001-3bd9-4678-ad73-856250afe320",
+      "name": "POST Message In Mattermost",
+      "credentials": {
+        "httpBearerAuth": {
+          "id": "BQzXUxKuHF0pxnRa",
+          "name": "Mattermost n8n Personal Access Token Secret"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "resource": "chatMessage",
+        "operation": "get",
+        "chatId": {
+          "__rl": true,
+          "value": "={{ $json['@odata.id'].match(/chats\\('([^']+)'\\)/)[1] }}",
+          "mode": "id"
+        },
+        "messageId": "={{ $json.id }}"
+      },
+      "type": "n8n-nodes-base.microsoftTeams",
+      "typeVersion": 2,
+      "position": [
+        -1008,
+        -48
+      ],
+      "id": "fb4142e1-9a58-4207-adfe-19fe963b1eb7",
+      "name": "Get MS-Teams Chat Message",
+      "webhookId": "47191fff-f152-437a-a7e2-93cf81d03f93",
+      "credentials": {
+        "microsoftTeamsOAuth2Api": {
+          "id": "zRL9ShF85bcTxkH3",
+          "name": "MS-Teams User OAuth2"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "c879b5ba-c314-4f37-9613-8a30ae80db4a",
+              "name": "My_MsTeams_Name",
+              "value": "MISSING_MS_TEAMS_NAME",
+              "type": "string"
+            },
+            {
+              "id": "07fc4c75-d478-47a4-80ff-809208c43e5b",
+              "name": "Mattermost_URL",
+              "value": "https://MISSING_MATTERMOST_DOMAIN/api",
+              "type": "string"
+            },
+            {
+              "id": "4471d037-fd04-4f30-b528-a3604a079f53",
+              "name": "Mattermost_ChannelID",
+              "value": "MISSING_MATTERMOST_CHANNEL_ID",
+              "type": "string"
+            }
+          ]
+        },
+        "includeOtherFields": true,
+        "options": {}
+      },
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.5,
+      "position": [
+        -608,
+        -144
+      ],
+      "id": "884a2845-7bda-4953-a223-003b77951ad4",
+      "name": "Set Workflow Constants"
+    },
+    {
+      "parameters": {
+        "url": "={{ $json.imageUrl }}",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "microsoftTeamsOAuth2Api",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        304,
+        -32
+      ],
+      "id": "abcb9f97-94fc-4894-98e6-a497d9543a83",
+      "name": "Download Image(s) From MS-Teams",
+      "credentials": {
+        "microsoftTeamsOAuth2Api": {
+          "id": "zRL9ShF85bcTxkH3",
+          "name": "MS-Teams User OAuth2"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "content": "# TODO: Constants\n\nUpdate the `Set Workflow Constants` node's values according to your environment.",
+        "height": 640,
+        "width": 224,
+        "color": "#5C0700"
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        -672,
+        -496
+      ],
+      "id": "3f17b673-ad61-4ab8-87ce-05745b45f2fc",
+      "name": "Sticky Note"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 3
+          },
+          "conditions": [
+            {
+              "id": "a229d41e-a3ea-4f7d-8dc5-63db08c79028",
+              "leftValue": "={{ $json.hasImage }}",
+              "rightValue": false,
+              "operator": {
+                "type": "boolean",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [
+        96,
+        -160
+      ],
+      "id": "0a3070c1-cdbc-44c7-84ad-c2557d615538",
+      "name": "If Image Is Absent"
+    },
+    {
+      "parameters": {
+        "content": "# Get MS-Teams Message & Image(s)",
+        "height": 640,
+        "width": 1040,
+        "color": "#B18CFE"
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        -416,
+        -496
+      ],
+      "id": "0083357f-ef0f-40b6-bf6d-b328418009b5",
+      "name": "Sticky Note1"
+    },
+    {
+      "parameters": {
+        "content": "# Send Message To Mattermost",
+        "height": 640,
+        "width": 816,
+        "color": "#0A58CC"
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        640,
+        -496
+      ],
+      "id": "78b0e68e-ac8f-4916-98d6-8ab495ca9603",
+      "name": "Sticky Note2"
+    },
+    {
+      "parameters": {
+        "mode": "combine",
+        "combineBy": "combineByPosition",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.merge",
+      "typeVersion": 3.2,
+      "position": [
+        848,
+        -240
+      ],
+      "id": "bfaaa9e3-500d-4d19-8bce-b0213d8262e1",
+      "name": "Collect Message & Image(s)"
+    },
+    {
+      "parameters": {
+        "watchAllTeams": true
+      },
+      "type": "n8n-nodes-base.microsoftTeamsTrigger",
+      "typeVersion": 1,
+      "position": [
+        -1216,
+        -272
+      ],
+      "id": "e205ba3a-a7d9-42fc-a597-510eef30aca1",
+      "name": "Incoming Message (Channel)",
+      "webhookId": "356768e5-b0cd-42e0-b0e5-b3107750952f",
+      "credentials": {
+        "microsoftTeamsOAuth2Api": {
+          "id": "zRL9ShF85bcTxkH3",
+          "name": "MS-Teams User OAuth2"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "event": "newChatMessage",
+        "watchAllChats": true
+      },
+      "type": "n8n-nodes-base.microsoftTeamsTrigger",
+      "typeVersion": 1,
+      "position": [
+        -1216,
+        -48
+      ],
+      "id": "a71fb3ef-6cf3-427d-9065-7aa1ffb5cbd6",
+      "name": "Incoming Message (Chat)",
+      "webhookId": "e2cff54e-27d4-4b57-90fa-344e4cdd8237",
+      "credentials": {
+        "microsoftTeamsOAuth2Api": {
+          "id": "zRL9ShF85bcTxkH3",
+          "name": "MS-Teams User OAuth2"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "resource": "channelMessage",
+        "operation": "getAll",
+        "teamId": {
+          "__rl": true,
+          "value": "={{ $json['@odata.id'].match(/teams\\('([^']+)'\\)/)[1] }}",
+          "mode": "id"
+        },
+        "channelId": {
+          "__rl": true,
+          "value": "={{ $json['@odata.id'].match(/channels\\('([^']+)'\\)/)[1] }}",
+          "mode": "id"
+        },
+        "limit": 10
+      },
+      "type": "n8n-nodes-base.microsoftTeams",
+      "typeVersion": 2,
+      "position": [
+        -1008,
+        -272
+      ],
+      "id": "2c5510b0-2d1a-432d-ae50-2c01727b9cc8",
+      "name": "Get MS-Teams Channel Messages",
+      "webhookId": "6c915d21-126e-4998-9e8c-5afdac3beea6",
+      "executeOnce": false,
+      "credentials": {
+        "microsoftTeamsOAuth2Api": {
+          "id": "zRL9ShF85bcTxkH3",
+          "name": "MS-Teams User OAuth2"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 3
+          },
+          "conditions": [
+            {
+              "id": "120a0270-72cf-4821-a1cc-ec6e5e9e9364",
+              "leftValue": "={{ $json.id }}",
+              "rightValue": "={{ $('Incoming Message (Channel)').item.json.id }}",
+              "operator": {
+                "type": "string",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.filter",
+      "typeVersion": 2.3,
+      "position": [
+        -816,
+        -272
+      ],
+      "id": "c9b1ee6d-486f-4ce6-9ac8-b0a0ee7b996f",
+      "name": "Filter For Incoming Message"
+    },
+    {
+      "parameters": {
+        "content": "# TODO: Channel Config\n\nUpdate the `Incoming Message (Channel)` node's values according to your environment.",
+        "height": 416,
+        "width": 224,
+        "color": "#5C0700"
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        -1280,
+        -496
+      ],
+      "id": "e599bd1c-39e4-4cc0-9c41-0cfea98cf6e2",
+      "name": "Sticky Note3"
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "Extract Image URLs": {
+      "main": [
+        [
+          {
+            "node": "If Image Is Absent",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Strip HTML": {
+      "main": [
+        [
+          {
+            "node": "Collect Message & Image(s)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Upload Images to Mattermost": {
+      "main": [
+        [
+          {
+            "node": "Collect Message & Image(s)",
+            "type": "main",
+            "index": 1
+          }
+        ]
+      ]
+    },
+    "Only Messages From Others": {
+      "main": [
+        [
+          {
+            "node": "Strip HTML",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Extract Image URLs",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Strip Binary Files": {
+      "main": [
+        [
+          {
+            "node": "Upload Images to Mattermost",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Aggregate Into One Post": {
+      "main": [
+        [
+          {
+            "node": "POST Message In Mattermost",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get MS-Teams Chat Message": {
+      "main": [
+        [
+          {
+            "node": "Set Workflow Constants",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Set Workflow Constants": {
+      "main": [
+        [
+          {
+            "node": "Only Messages From Others",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Download Image(s) From MS-Teams": {
+      "main": [
+        [
+          {
+            "node": "Strip Binary Files",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "If Image Is Absent": {
+      "main": [
+        [
+          {
+            "node": "Collect Message & Image(s)",
+            "type": "main",
+            "index": 1
+          }
+        ],
+        [
+          {
+            "node": "Download Image(s) From MS-Teams",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Collect Message & Image(s)": {
+      "main": [
+        [
+          {
+            "node": "Aggregate Into One Post",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Incoming Message (Channel)": {
+      "main": [
+        [
+          {
+            "node": "Get MS-Teams Channel Messages",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Incoming Message (Chat)": {
+      "main": [
+        [
+          {
+            "node": "Get MS-Teams Chat Message",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get MS-Teams Channel Messages": {
+      "main": [
+        [
+          {
+            "node": "Filter For Incoming Message",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Filter For Incoming Message": {
+      "main": [
+        [
+          {
+            "node": "Set Workflow Constants",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": true,
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate",
+    "availableInMCP": false
+  },
+  "versionId": "fd0aad6e-75f7-4627-83c3-9dca99cb8e68",
+  "meta": {
+    "templateCredsSetupCompleted": true,
+    "instanceId": "0ebdc5fe79854fd41ec7ec7da916ac4790f90f076450db5ae26c00c89c7c7610"
+  },
+  "nodeGroups": [],
+  "id": "8G9lWQH93Sgh3289",
+  "tags": []
+}
