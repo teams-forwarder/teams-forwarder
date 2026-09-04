@@ -1,4 +1,4 @@
-# Teams Forwarder
+# Teams-Forwarder
 
 This project is a collection of n8n workflows helping MS-Teams users to forward messages to better chat programs.
 
