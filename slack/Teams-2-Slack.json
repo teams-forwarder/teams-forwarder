@@ -1,0 +1,851 @@
+{
+  "name": "Teams-2-Slack",
+  "nodes": [
+    {
+      "parameters": {
+        "jsCode": "const messageBody = $json.body.content;\nconst imgRegex = /<img[^>]+src=\"(https:\\/\\/[^\"]*graph\\.microsoft\\.com[^\"]*)\"/gi;\n\nconst imageUrls = [];\nlet match;\n\nwhile ((match = imgRegex.exec(messageBody)) !== null) {\n  imageUrls.push(match[1]);\n}\n\nif (imageUrls.length === 0) {\n  return [{ json: { hasImage: false, imageUrl: null } }];\n}\n\n// Return one item per image — so the next nodes process each one individually\nreturn imageUrls.map(url => ({ json: { hasImage: true, imageUrl: url } }));"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -48,
+        -224
+      ],
+      "id": "a33fd2a2-964b-4688-b9c2-c93bb564eecd",
+      "name": "Extract Image URLs",
+      "notesInFlow": false
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForEachItem",
+        "jsCode": "const html = $json.body.content;\n\nconst plain_message = html\n  .replace(/<br\\s*\\/?>/gi, '\\n')\n  .replace(/<\\/p>/gi, '\\n')\n  .replace(/<p[^>]*>/gi, '')\n  .replace(/<strong[^>]*>(.*?)<\\/strong>/gi, '**$1**')\n  .replace(/<b[^>]*>(.*?)<\\/b>/gi, '**$1**')\n  .replace(/<em[^>]*>(.*?)<\\/em>/gi, '*$1*')\n  .replace(/<i[^>]*>(.*?)<\\/i>/gi, '*$1*')\n  .replace(/<a[^>]*href=\"([^\"]*)\"[^>]*>(.*?)<\\/a>/gi, '[$2]($1)')\n  .replace(/<[^>]+>/g, '')\n  .replace(/&amp;/g, '&')\n  .replace(/&lt;/g, '<')\n  .replace(/&gt;/g, '>')\n  .replace(/&nbsp;/g, ' ')\n  .trim();\n\nreturn { json: { plain_message } };\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -48,
+        -400
+      ],
+      "id": "2b7032ee-098e-433a-bc3e-349fdf795a17",
+      "name": "Strip HTML"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 3
+          },
+          "conditions": [
+            {
+              "id": "b57713cf-a0f2-44f4-b652-699e3cfbfef2",
+              "leftValue": "={{ $json.from }}",
+              "rightValue": "",
+              "operator": {
+                "type": "object",
+                "operation": "exists",
+                "singleValue": true
+              }
+            },
+            {
+              "id": "c3e94085-61d3-4659-8055-9cf50919f874",
+              "leftValue": "={{ $json.from.user.displayName }}",
+              "rightValue": "={{ $('Set Workflow Constants').item.json.My_MsTeams_Name }}",
+              "operator": {
+                "type": "string",
+                "operation": "notEquals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [
+        -368,
+        -144
+      ],
+      "id": "f2e8314a-e5d6-442d-acad-7f82bd767065",
+      "name": "Only Messages From Others"
+    },
+    {
+      "parameters": {
+        "jsCode": "const results = [];\nconst items = $input.all();\n\nfor (let index = 0; index < items.length; index++) {\n  const item = items[index];\n  \n  results.push({\n    json: {},\n    binary: {\n      data: {\n        ...item.binary.data,\n        fileName: `img${index}.png`,\n        mimeType: item.binary.data.mimeType,\n      }\n    }\n  });\n}\n\nreturn results;"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        544,
+        -240
+      ],
+      "id": "dbeede02-9fd1-4e06-8310-ed45962fc74b",
+      "name": "Strip Binary Files"
+    },
+    {
+      "parameters": {
+        "jsCode": "const items = $input.all();\n\nconst chatTriggered  = $('Incoming Message (Chat)').isExecuted;\nconst channelTriggered = $('Incoming Message (Channel)').isExecuted;\nlet footerRef;\nif (chatTriggered) {\n  footerRef = \"Ref:\" + $('Incoming Message (Chat)').first().json['@odata.id'];\n} else if (channelTriggered) {\n  footerRef = \"Ref:\" + $('Incoming Message (Channel)').first().json['@odata.id'];\n}\n\n\nlet messageText = ' ';\n\nfor (const item of items) {\n  // Pick up message text if present\n  if (item.json.plain_message) {\n    messageText = item.json.plain_message;\n    if (messageText == \"\") {\n      messageText=' ';\n    }\n  }\n}\n\nconst body = {\n  channel: $('Set Workflow Constants').first().json.Slack_MemberID,\n  text: \"\",\n  attachments: [{\n    color: \"#4542F8\",\n    blocks: [\n      {\n        \"type\": \"context\",\n        \"elements\": [{ \"type\": \"mrkdwn\", \"text\": \"*MS-Teams Message*\" }]\n      },\n      {\n        \"type\": \"header\",\n        \"text\": { \"type\": \"plain_text\", \"text\": $('Set Workflow Constants').first().json.from.user.displayName }\n      },\n      {\n        \"type\": \"section\",\n        \"text\": { \"type\": \"mrkdwn\", \"text\": messageText }\n      },\n      {\n        \"type\": \"context\",\n        \"elements\": [{ \"type\": \"mrkdwn\", \"text\": footerRef }]\n      }\n    ]\n  }]\n};\n\nreturn [{\n  json: {\n    messageText: messageText,\n    hasMessage: messageText.length > 0,\n    postbody: body\n  }\n}];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        832,
+        -400
+      ],
+      "id": "d463e43a-5094-4444-b526-671d54dde58f",
+      "name": "Aggregate Into One Post"
+    },
+    {
+      "parameters": {
+        "resource": "chatMessage",
+        "operation": "get",
+        "chatId": {
+          "__rl": true,
+          "value": "={{ $json['@odata.id'].match(/chats\\('([^']+)'\\)/)[1] }}",
+          "mode": "id"
+        },
+        "messageId": "={{ $json.id }}"
+      },
+      "type": "n8n-nodes-base.microsoftTeams",
+      "typeVersion": 2,
+      "position": [
+        -1008,
+        -48
+      ],
+      "id": "8d82a1e5-7171-4cda-9e55-edfd74340344",
+      "name": "Get MS-Teams Chat Message",
+      "webhookId": "bd2990a8-5875-4bb2-94b0-c51bc6a68bd4",
+      "credentials": {
+        "microsoftTeamsOAuth2Api": {
+          "id": "zRL9ShF85bcTxkH3",
+          "name": "MS-Teams User OAuth2"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "c879b5ba-c314-4f37-9613-8a30ae80db4a",
+              "name": "My_MsTeams_Name",
+              "value": "MISSING_MS_TEAMS_NAME",
+              "type": "string"
+            },
+            {
+              "id": "4471d037-fd04-4f30-b528-a3604a079f53",
+              "name": "Slack_MemberID",
+              "value": "MISSING_SLACK_CHANNEL_ID",
+              "type": "string"
+            }
+          ]
+        },
+        "includeOtherFields": true,
+        "options": {}
+      },
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.5,
+      "position": [
+        -608,
+        -144
+      ],
+      "id": "4d6484c5-149a-4e0c-ac7d-23476af120b3",
+      "name": "Set Workflow Constants"
+    },
+    {
+      "parameters": {
+        "url": "={{ $json.imageUrl }}",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "microsoftTeamsOAuth2Api",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        352,
+        -240
+      ],
+      "id": "3b4d8aa7-2047-4f96-ad21-5161b23d114b",
+      "name": "Download Image(s) From MS-Teams",
+      "credentials": {
+        "microsoftTeamsOAuth2Api": {
+          "id": "zRL9ShF85bcTxkH3",
+          "name": "MS-Teams User OAuth2"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "content": "# TODO: Constants\n\nUpdate the `Set Workflow Constants` node's values according to your environment.",
+        "height": 656,
+        "width": 224,
+        "color": "#5C0700"
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        -672,
+        -512
+      ],
+      "id": "97ba9334-4b7c-4208-b571-235aeec0f32a",
+      "name": "Sticky Note"
+    },
+    {
+      "parameters": {
+        "content": "# Get MS-Teams Message & Image(s)",
+        "height": 656,
+        "width": 1120,
+        "color": "#B18CFE"
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        -416,
+        -512
+      ],
+      "id": "5c947149-85bc-4330-bcb8-f60fb17e979e",
+      "name": "Sticky Note1"
+    },
+    {
+      "parameters": {
+        "content": "# Send Message To Slack",
+        "height": 656,
+        "width": 1248,
+        "color": "#0A58CC"
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        736,
+        -512
+      ],
+      "id": "ef15fa3b-cef5-4d83-9dc2-fa03180594bc",
+      "name": "Sticky Note2"
+    },
+    {
+      "parameters": {
+        "watchAllTeams": true
+      },
+      "type": "n8n-nodes-base.microsoftTeamsTrigger",
+      "typeVersion": 1,
+      "position": [
+        -1232,
+        -272
+      ],
+      "id": "6f3689a1-b9b3-4bff-988a-3618fb0ea49a",
+      "name": "Incoming Message (Channel)",
+      "webhookId": "5774585d-0221-4559-b817-d4934b7d2ee8",
+      "credentials": {
+        "microsoftTeamsOAuth2Api": {
+          "id": "zRL9ShF85bcTxkH3",
+          "name": "MS-Teams User OAuth2"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "event": "newChatMessage",
+        "watchAllChats": true
+      },
+      "type": "n8n-nodes-base.microsoftTeamsTrigger",
+      "typeVersion": 1,
+      "position": [
+        -1232,
+        -48
+      ],
+      "id": "ebd3cf80-2a6b-4a1e-a8b9-675e0b076b48",
+      "name": "Incoming Message (Chat)",
+      "webhookId": "cb27eabd-178f-4b1b-bf39-7ed7be0f2ca3",
+      "credentials": {
+        "microsoftTeamsOAuth2Api": {
+          "id": "zRL9ShF85bcTxkH3",
+          "name": "MS-Teams User OAuth2"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "resource": "channelMessage",
+        "operation": "getAll",
+        "teamId": {
+          "__rl": true,
+          "value": "={{ $json['@odata.id'].match(/teams\\('([^']+)'\\)/)[1] }}",
+          "mode": "id"
+        },
+        "channelId": {
+          "__rl": true,
+          "value": "={{ $json['@odata.id'].match(/channels\\('([^']+)'\\)/)[1] }}",
+          "mode": "id"
+        },
+        "limit": 10
+      },
+      "type": "n8n-nodes-base.microsoftTeams",
+      "typeVersion": 2,
+      "position": [
+        -1008,
+        -272
+      ],
+      "id": "1fb68808-a7fe-4be4-a5a5-ebe5b9d5fab2",
+      "name": "Get MS-Teams Channel Messages",
+      "webhookId": "a3d6c5ef-de2e-42cd-8ae4-00620727e681",
+      "executeOnce": false,
+      "credentials": {
+        "microsoftTeamsOAuth2Api": {
+          "id": "zRL9ShF85bcTxkH3",
+          "name": "MS-Teams User OAuth2"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 3
+          },
+          "conditions": [
+            {
+              "id": "120a0270-72cf-4821-a1cc-ec6e5e9e9364",
+              "leftValue": "={{ $json.id }}",
+              "rightValue": "={{ $('Incoming Message (Channel)').item.json.id }}",
+              "operator": {
+                "type": "string",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.filter",
+      "typeVersion": 2.3,
+      "position": [
+        -816,
+        -272
+      ],
+      "id": "b58a967d-5a1e-4005-9323-ecb5d9d7b407",
+      "name": "Filter For Incoming Message"
+    },
+    {
+      "parameters": {
+        "content": "# TODO: Channel Config\n\nUpdate the `Incoming Message (Channel)` node's values according to your environment.",
+        "height": 432,
+        "width": 272,
+        "color": "#5C0700"
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        -1312,
+        -512
+      ],
+      "id": "55c3bf50-696f-4f0c-adfb-2a3f6678d611",
+      "name": "Sticky Note3"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "=https://slack.com/api/chat.postMessage",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "slackApi",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Accept",
+              "value": "application/json;charset=utf-8"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json;charset=utf-8"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify($json.postbody) }}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        1104,
+        -400
+      ],
+      "id": "933fa0f6-254f-4c3a-8526-9adb7af1247e",
+      "name": "POST Message In Slack",
+      "credentials": {
+        "slackApi": {
+          "id": "SxQwDcguc7ghDncx",
+          "name": "Slack account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "url": "=https://slack.com/api/files.getUploadURLExternal?filename=chart.png&length={{ $json.fileSizeBytes }}",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "slackApi",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        784,
+        -64
+      ],
+      "id": "df5862ac-5db7-499a-a0c6-d3b60fcecd91",
+      "name": "Get Upload URL from Slack",
+      "alwaysOutputData": true,
+      "executeOnce": false,
+      "credentials": {
+        "slackApi": {
+          "id": "SxQwDcguc7ghDncx",
+          "name": "Slack account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const buffer = await this.helpers.getBinaryDataBuffer(0, 'data');\n$input.item.json.fileSizeBytes = buffer.length;\nreturn $input.item;"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        560,
+        -64
+      ],
+      "id": "50ffa6f1-cd35-4136-afaa-bcabb34660a8",
+      "name": "Compute File Length"
+    },
+    {
+      "parameters": {
+        "mode": "combine",
+        "combineBy": "combineByPosition",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.merge",
+      "typeVersion": 3.2,
+      "position": [
+        992,
+        -160
+      ],
+      "id": "a3b12dc2-6bdd-4d71-b5c9-0316dd7f97e9",
+      "name": "Collect Binary And File Size"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "=https://slack.com/api/conversations.open",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "slackApi",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Content-Type",
+              "value": "application/json;charset=utf-8"
+            }
+          ]
+        },
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": [
+            {
+              "name": "users",
+              "value": "={{ $('Set Workflow Constants').item.json.Slack_MemberID }}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        1408,
+        -160
+      ],
+      "id": "df8d6751-63bf-48d4-abf1-e0376de87bc3",
+      "name": "Get Conversation ID",
+      "alwaysOutputData": true,
+      "executeOnce": false,
+      "credentials": {
+        "slackApi": {
+          "id": "SxQwDcguc7ghDncx",
+          "name": "Slack account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "=https://slack.com/api/files.completeUploadExternal",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "slackApi",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Content-Type",
+              "value": "application/json;charset=utf-8"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\"files\": \n  [\n    {\n      \"id\": \"{{ $('Get Upload URL from Slack').item.json.file_id }}\",\n      \"title\": \"img.png\"\n    }\n  ],\n\"channel_id\": \"{{ $('Get Conversation ID').item.json.channel.id }}\"\n}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        1840,
+        -288
+      ],
+      "id": "f7b58f43-65ff-4469-96e4-f27c709e68fe",
+      "name": "Optional Slack File Upload",
+      "alwaysOutputData": true,
+      "executeOnce": false,
+      "credentials": {
+        "slackApi": {
+          "id": "SxQwDcguc7ghDncx",
+          "name": "Slack account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "mode": "chooseBranch",
+        "useDataOfInput": 2
+      },
+      "type": "n8n-nodes-base.merge",
+      "typeVersion": 3.2,
+      "position": [
+        1632,
+        -288
+      ],
+      "id": "0661a8a6-e7a3-4bfd-8faf-6fc2a91148b6",
+      "name": "Message Sent and File Present?"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 3
+          },
+          "conditions": [
+            {
+              "id": "a229d41e-a3ea-4f7d-8dc5-63db08c79028",
+              "leftValue": "={{ $json.hasImage }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [
+        128,
+        -224
+      ],
+      "id": "769aaad6-edaf-4f0f-b192-7a78075520e0",
+      "name": "If Image Is Present"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $json.upload_url }}",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "slackApi",
+        "sendBody": true,
+        "contentType": "binaryData",
+        "inputDataFieldName": "data",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        1200,
+        -160
+      ],
+      "id": "78683802-afb6-4e7d-acb0-6a1f802d8d90",
+      "name": "Upload Image Data to Slack",
+      "alwaysOutputData": true,
+      "executeOnce": false,
+      "credentials": {
+        "slackApi": {
+          "id": "SxQwDcguc7ghDncx",
+          "name": "Slack account"
+        }
+      }
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "Extract Image URLs": {
+      "main": [
+        [
+          {
+            "node": "If Image Is Present",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Strip HTML": {
+      "main": [
+        [
+          {
+            "node": "Aggregate Into One Post",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Only Messages From Others": {
+      "main": [
+        [
+          {
+            "node": "Strip HTML",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Extract Image URLs",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Strip Binary Files": {
+      "main": [
+        [
+          {
+            "node": "Collect Binary And File Size",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Aggregate Into One Post": {
+      "main": [
+        [
+          {
+            "node": "POST Message In Slack",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get MS-Teams Chat Message": {
+      "main": [
+        [
+          {
+            "node": "Set Workflow Constants",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Set Workflow Constants": {
+      "main": [
+        [
+          {
+            "node": "Only Messages From Others",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Download Image(s) From MS-Teams": {
+      "main": [
+        [
+          {
+            "node": "Compute File Length",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Strip Binary Files",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Incoming Message (Channel)": {
+      "main": [
+        [
+          {
+            "node": "Get MS-Teams Channel Messages",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Incoming Message (Chat)": {
+      "main": [
+        [
+          {
+            "node": "Get MS-Teams Chat Message",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get MS-Teams Channel Messages": {
+      "main": [
+        [
+          {
+            "node": "Filter For Incoming Message",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Filter For Incoming Message": {
+      "main": [
+        [
+          {
+            "node": "Set Workflow Constants",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get Upload URL from Slack": {
+      "main": [
+        [
+          {
+            "node": "Collect Binary And File Size",
+            "type": "main",
+            "index": 1
+          }
+        ]
+      ]
+    },
+    "Compute File Length": {
+      "main": [
+        [
+          {
+            "node": "Get Upload URL from Slack",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Collect Binary And File Size": {
+      "main": [
+        [
+          {
+            "node": "Upload Image Data to Slack",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "POST Message In Slack": {
+      "main": [
+        [
+          {
+            "node": "Message Sent and File Present?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get Conversation ID": {
+      "main": [
+        [
+          {
+            "node": "Message Sent and File Present?",
+            "type": "main",
+            "index": 1
+          }
+        ]
+      ]
+    },
+    "Optional Slack File Upload": {
+      "main": [
+        []
+      ]
+    },
+    "Message Sent and File Present?": {
+      "main": [
+        [
+          {
+            "node": "Optional Slack File Upload",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "If Image Is Present": {
+      "main": [
+        [
+          {
+            "node": "Download Image(s) From MS-Teams",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        []
+      ]
+    },
+    "Upload Image Data to Slack": {
+      "main": [
+        [
+          {
+            "node": "Get Conversation ID",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": true,
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate",
+    "availableInMCP": false
+  },
+  "versionId": "15aa442f-41e9-401c-b1f0-e210ec6c187d",
+  "meta": {
+    "templateCredsSetupCompleted": true,
+    "instanceId": "0ebdc5fe79854fd41ec7ec7da916ac4790f90f076450db5ae26c00c89c7c7610"
+  },
+  "nodeGroups": [],
+  "id": "83xoicebGxCK7fKX",
+  "tags": []
+}

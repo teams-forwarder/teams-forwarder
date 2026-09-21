@@ -27,11 +27,17 @@ Images are forwarded from the original MS-Teams message.
 
 ![incoming message with image](./mattermost/docs/images/example-6.png "incoming message with image")
 
-Tested with n8n 2.37.6 and Mattermost Team Edition 11.10.1.
+Tested with n8n 2.40.0 and Mattermost Team Edition 11.11.0.
 
 ### Slack
 
-(upcoming)
+[Forwarding messages to Slack](./slack/): responding via reply.
+
+![incoming message and reply](./slack/docs/images/example-1.png "incoming message and reply")
+![incoming in teams](./slack/docs/images/example-2.png "incoming in teams")
+![rendered markdown](./slack/docs/images/example-3.png "rendered markdown")
+
+Tested with n8n 2.40.0 and Slack Version 4.52.155.
 
 ### Discord
 

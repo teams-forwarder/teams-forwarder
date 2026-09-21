@@ -1,0 +1,400 @@
+{
+  "name": "Slack-2-Teams",
+  "nodes": [
+    {
+      "parameters": {
+        "jsCode": "function findRef(node) {\n  if (node === null || typeof node !== 'object') return null;\n\n  if (Array.isArray(node)) {\n    for (const child of node) {\n      const hit = findRef(child);\n      if (hit) return hit;\n    }\n    return null;\n  }\n\n  if (typeof node.text === 'string' && node.text.startsWith('Ref:')) {\n    return node.text;\n  }\n\n  for (const value of Object.values(node)) {\n    const hit = findRef(value);\n    if (hit) return hit;\n  }\n  return null;\n}\n\nconst msteamsrefid = findRef($input.first().json.messages);\n\nif (!msteamsrefid) {\n  return [];   // nothing found — downstream branch sees no items\n}\n\nconst msteamschatsid = (msteamsrefid.match(/chats\\('([^']+)'\\)/)) ? msteamsrefid.match(/chats\\('([^']+)'\\)/)[1] : null;\nconst msteamsteamid = (msteamsrefid.match(/teams\\('([^']+)'\\)/)) ? msteamsrefid.match(/teams\\('([^']+)'\\)/)[1] : null;\nconst msteamschannelid = (msteamsrefid.match(/channels\\('([^']+)'\\)/)) ? msteamsrefid.match(/channels\\('([^']+)'\\)/)[1] : null;\nconst msteamsmessageid = (msteamsrefid.match(/messages\\('([^']+)'\\)/)) ? msteamsrefid.match(/messages\\('([^']+)'\\)/)[1] : null;\n\nreturn [{ \n  json: { ...$input.first().json, msteamschannelid, msteamsmessageid, msteamschatsid, msteamsteamid } }];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -48,
+        -128
+      ],
+      "id": "9012a6fd-abf4-4f6a-84d1-942c2e54ec67",
+      "name": "Extract MS-Teams Ref ID"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "=https://graph.microsoft.com/v1.0/chats/{{ $('Extract MS-Teams Ref ID').item.json.msteamschatsid }}/messages",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "microsoftTeamsOAuth2Api",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify($('Prepare Message Body').first().json.message) }}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        912,
+        -64
+      ],
+      "id": "2b0c2082-f9ea-475f-95cc-0be2678493d6",
+      "name": "Post DM | Group Response",
+      "credentials": {
+        "microsoftTeamsOAuth2Api": {
+          "id": "zRL9ShF85bcTxkH3",
+          "name": "MS-Teams User OAuth2"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 3
+          },
+          "conditions": [
+            {
+              "id": "02de197d-ba50-40ea-bda1-1daa1ab0b629",
+              "leftValue": "={{ $('Extract MS-Teams Ref ID').item.json.msteamschannelid }}",
+              "rightValue": "",
+              "operator": {
+                "type": "string",
+                "operation": "exists",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [
+        688,
+        -128
+      ],
+      "id": "993ace02-c1b1-4b1f-96c6-983c3ae4ede7",
+      "name": "Is It A Channel Message"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "http://localhost:3000/render",
+        "sendBody": true,
+        "contentType": "raw",
+        "rawContentType": "text/markdown",
+        "body": "={{ $('Slack Trigger').item.json.text }}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        256,
+        -128
+      ],
+      "id": "a0ac465b-ec83-4271-8f80-20d2889661a1",
+      "name": "Render Response Message to PNG"
+    },
+    {
+      "parameters": {
+        "jsCode": "const buf = await this.helpers.getBinaryDataBuffer(0, 'data');\n\nreturn [{ json: \n{ message: {\n  \"body\": {\n    \"contentType\": \"html\",\n    \"content\": \"<attachment id=\\\"\"+ $('Extract MS-Teams Ref ID').first().json.msteamsmessageid +\"\\\"></attachment><p><img src=\\\"../hostedContents/1/$value\\\" /></p>\"\n  },\n  \"attachments\": [\n    {\n      \"id\": $('Extract MS-Teams Ref ID').first().json.msteamsmessageid,\n      \"contentType\": \"messageReference\",\n      \"contentUrl\": null,\n      \"content\": \"{\\\"messageId\\\":\\\"\" + $('Extract MS-Teams Ref ID').first().json.msteamsmessageid + \"\\\"}\",\n      \"name\": null,\n      \"thumbnailUrl\": null\n    }\n  ],\n  \"hostedContents\": [\n    {\n      \"@microsoft.graph.temporaryId\": \"1\",\n      \"contentType\": \"image/png\",\n      \"contentBytes\": buf.toString('base64')\n    }\n  ]\n}\n}\n}];\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        464,
+        -128
+      ],
+      "id": "f2a85e72-32e0-496f-b76c-4f4aff6632fa",
+      "name": "Prepare Message Body"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "=https://graph.microsoft.com/v1.0/teams/{{ $('Extract MS-Teams Ref ID').item.json.msteamsteamid }}/channels/{{ $('Extract MS-Teams Ref ID').item.json.msteamschannelid }}/messages/{{ $('Extract MS-Teams Ref ID').item.json.msteamsmessageid }}/replies",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "microsoftTeamsOAuth2Api",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify($('Prepare Message Body').first().json.message) }}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        912,
+        -224
+      ],
+      "id": "f90c56ce-f00c-4e2a-8be2-e8957478bd33",
+      "name": "Post Channel Response",
+      "credentials": {
+        "microsoftTeamsOAuth2Api": {
+          "id": "zRL9ShF85bcTxkH3",
+          "name": "MS-Teams User OAuth2"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "content": "# TODO: Slack Channel ID\n\nUpdate the Channel ID your n8n workflow should be triggered on.",
+        "height": 448,
+        "width": 256,
+        "color": "#5C0700"
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        -912,
+        -336
+      ],
+      "id": "9345b2f0-291b-4b9f-8aa1-5667b1c6b110",
+      "name": "Sticky Note"
+    },
+    {
+      "parameters": {
+        "content": "# Get MS-Teams Reference Message",
+        "height": 448,
+        "width": 512,
+        "color": "#B18CFE"
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        -352,
+        -352
+      ],
+      "id": "dbba0b9f-0d1f-4bf8-8d47-d04fce2b38ce",
+      "name": "Sticky Note1"
+    },
+    {
+      "parameters": {
+        "content": "# Send Message To MS-Teams",
+        "height": 448,
+        "width": 960,
+        "color": 6
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        176,
+        -352
+      ],
+      "id": "e0d9795b-70e5-450e-9e3d-1a35a3792842",
+      "name": "Sticky Note3"
+    },
+    {
+      "parameters": {
+        "trigger": [
+          "message"
+        ],
+        "channelId": {
+          "__rl": true,
+          "value": "MISSING_SLACK_CHANNEL_ID",
+          "mode": "id"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.slackTrigger",
+      "typeVersion": 1,
+      "position": [
+        -832,
+        -112
+      ],
+      "id": "ed393953-c3c8-47a9-90b8-d01aaece1e0c",
+      "name": "Slack Trigger",
+      "webhookId": "da8a786e-250c-4503-808b-90ec2db146e3",
+      "credentials": {
+        "slackApi": {
+          "id": "SxQwDcguc7ghDncx",
+          "name": "Slack account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 3
+          },
+          "conditions": [
+            {
+              "id": "a7e384e4-0fdb-48fa-a3c8-d56dbfebd5a9",
+              "leftValue": "={{ $json.ts }}",
+              "rightValue": "",
+              "operator": {
+                "type": "string",
+                "operation": "exists",
+                "singleValue": true
+              }
+            },
+            {
+              "id": "8bae60c4-37c1-46b9-96bc-72ead83ce774",
+              "leftValue": "={{ $json.thread_ts }}",
+              "rightValue": "",
+              "operator": {
+                "type": "string",
+                "operation": "exists",
+                "singleValue": true
+              }
+            },
+            {
+              "id": "c49e1b72-971b-4970-871b-b6e09ecd569b",
+              "leftValue": "={{ $json.thread_ts }}",
+              "rightValue": "={{ $json.ts }}",
+              "operator": {
+                "type": "string",
+                "operation": "notEquals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [
+        -592,
+        -112
+      ],
+      "id": "3bf0bff8-667d-4ec0-ab2e-ea8741b76db2",
+      "name": "Is a reply in a thread"
+    },
+    {
+      "parameters": {
+        "url": "=https://slack.com/api/conversations.replies",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "slackApi",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "channel",
+              "value": "={{ $json.channel }}"
+            },
+            {
+              "name": "ts",
+              "value": "={{ $json.thread_ts }}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        -272,
+        -128
+      ],
+      "id": "7a6b050c-dc96-482b-a9bd-5e5614e5f4e9",
+      "name": "Get The Slack Parent Post",
+      "credentials": {
+        "slackApi": {
+          "id": "SxQwDcguc7ghDncx",
+          "name": "Slack account"
+        }
+      }
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "Extract MS-Teams Ref ID": {
+      "main": [
+        [
+          {
+            "node": "Render Response Message to PNG",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Is It A Channel Message": {
+      "main": [
+        [
+          {
+            "node": "Post Channel Response",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Post DM | Group Response",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Render Response Message to PNG": {
+      "main": [
+        [
+          {
+            "node": "Prepare Message Body",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Prepare Message Body": {
+      "main": [
+        [
+          {
+            "node": "Is It A Channel Message",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Slack Trigger": {
+      "main": [
+        [
+          {
+            "node": "Is a reply in a thread",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Is a reply in a thread": {
+      "main": [
+        [
+          {
+            "node": "Get The Slack Parent Post",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get The Slack Parent Post": {
+      "main": [
+        [
+          {
+            "node": "Extract MS-Teams Ref ID",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": true,
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate"
+  },
+  "versionId": "a0728964-7877-4563-b986-02292b785c89",
+  "meta": {
+    "templateCredsSetupCompleted": true,
+    "instanceId": "0ebdc5fe79854fd41ec7ec7da916ac4790f90f076450db5ae26c00c89c7c7610"
+  },
+  "nodeGroups": [],
+  "id": "px5BfdQ8YcFudO8S",
+  "tags": []
+}
